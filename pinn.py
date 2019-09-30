@@ -18,13 +18,17 @@ class PINN:
     # Initialize the class
     def __init__(self, P_back, x, y, P, rho, u, v, T, layers):
         
+        self.chkpt_name = 'tmp/2d_inviscid_model_%s'%time.strftime("%Y%m%d-%H%M%S")
+
+
+
         #P_back     : m x 1 matrix
         #x          : m x 1 matrix
         #y          : m x 1 matrix
         
         #X          : m x 3 matrix
         X = np.concatenate([P_back, x, y], 1)
-        print (X)
+
         #Find minimum of each column
         self.lb = X.min(0)
 
@@ -55,14 +59,14 @@ class PINN:
         self.sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(allow_soft_placement=True,
                                                                         log_device_placement=True))
         
-        self.P_back_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.P_back.shape[1]])
-        self.x_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x.shape[1]])
-        self.y_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.y.shape[1]])
-        self.P_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.P.shape[1]])
-        self.rho_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.rho.shape[1]])
-        self.u_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.u.shape[1]])
-        self.v_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.v.shape[1]])
-        self.T_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.T.shape[1]])
+        self.P_back_tf  = tf.compat.v1.placeholder(tf.float32, shape=[None, self.P_back.shape[1]])
+        self.x_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x.shape[1]])
+        self.y_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.y.shape[1]])
+        self.P_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.P.shape[1]])
+        self.rho_tf     = tf.compat.v1.placeholder(tf.float32, shape=[None, self.rho.shape[1]])
+        self.u_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.u.shape[1]])
+        self.v_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.v.shape[1]])
+        self.T_tf       = tf.compat.v1.placeholder(tf.float32, shape=[None, self.T.shape[1]])
         
         self.P_pred, self.rho_pred, self.u_pred,self.v_pred, self.T_pred, self.e_res = self.net_NS(self.P_back_tf, self.x_tf,self.y_tf)
 
@@ -72,16 +76,17 @@ class PINN:
         u_norm      = np.amax(u)
         v_norm      = np.amax(v)
         T_norm      = np.amax(T)
+        e_norm      = 1#np.amax(P/y)
 
         ##have to change here------------------------------------------------------------------
-        a = 40
+        a = 2
 
-        self.loss = tf.reduce_sum(tf.square(self.P_tf - self.P_pred))/(P_norm**2) + \
-                    tf.reduce_sum(tf.square(self.rho_tf - self.rho_pred))/(rho_norm**2) + \
-                    tf.reduce_sum(tf.square(self.u_tf - self.u_pred))/(u_norm**2) + \
-                    tf.reduce_sum(tf.square(self.v_tf - self.u_pred))/(v_norm**2) + \
-                    tf.reduce_sum(tf.square(self.T_tf - self.T_pred))/(T_norm**2) + \
-                    a*tf.reduce_mean(tf.square(self.e_res))
+        self.loss = tf.reduce_mean(tf.square(self.P_tf - self.P_pred))/(P_norm**2) + \
+                    tf.reduce_mean(tf.square(self.rho_tf - self.rho_pred))/(rho_norm**2) + \
+                    tf.reduce_mean(tf.square(self.u_tf - self.u_pred))/(u_norm**2) + \
+                    tf.reduce_mean(tf.square(self.v_tf - self.u_pred))/(v_norm**2) + \
+                    tf.reduce_mean(tf.square(self.T_tf - self.T_pred))/(T_norm**2) + \
+                    a*tf.reduce_mean(tf.square(self.e_res))/(e_norm**2)
                  
                     
         self.optimizer = tf.contrib.opt.ScipyOptimizerInterface(self.loss, 
@@ -96,6 +101,9 @@ class PINN:
         self.train_op_Adam = self.optimizer_Adam.minimize(self.loss)                    
         
         init = tf.global_variables_initializer()
+
+        self.saver = tf.train.Saver()
+
         self.sess.run(init)
 
     def initialize_NN(self, layers):        
@@ -137,31 +145,41 @@ class PINN:
         T   = P_rho_u_v_T[:,4:5]
 
         ##have to change here------------------------------------------------------------------
+        mu = 0.0
         R = 287
         gamma = 1.4
+        k = 0.0242
         E = R*T/(gamma-1) + (u*u+v*v)/2
 
-        #     E1        E2              E3          E4
-        w = [rho    , rho*u         , rho*v     , rho*E         ] #dt
-        F = [rho*u  , rho*u*u + P   , rho*u*v   , (rho*E+P)*u   ] #dx
-        G = [rho*v  , rho*u*v       , rho*v*v +P, (rho*E+P)*v   ] #dy
-        #H = [rho*E  , (rho*E+P)*u   ,(rho)          ]               #??
+        H_v2 = - 2/3*y*tf.gradients(u*v/y, x)[0]
+        H_v3 = - y*2/3*tf.gradients(u*v/y, y)[0]
+        H_v4 = k*tf.gradients(T, y)[0] 
 
-        S = 1 + 2.2*(3*x-1.5)**2
-        # autodiff gradient #1
-        e_1 = tf.gradients(F[0], x)[0] + tf.gradients(G[0], y)[0]
+        #     E1        E2              E3          E4
+        w = [rho    , rho*u         , rho*v     , rho*E                                  ] #dt
+        F = [rho*u  , rho*u*u + P   , rho*u*v   , (rho*E+P)*u  -k*tf.gradients(T,x)[0]   ] #dx
+        G = [rho*v  , rho*u*v       , rho*v*v +P, (rho*E+P)*v  -k*tf.gradients(T,y)[0]   ] #dy
+        H = [rho*v/y, rho*u*v/y     , rho*v*v/y , (rho*E+P)*v/y                          ]
+        H_v = [0, H_v2, H_v3, H_v4]        
+
+        alpha = 0
+        
+        # autodiff residual 1
+        e_1 = tf.gradients(F[0], x)[0] + tf.gradients(G[0], y)[0] - alpha/y*(H[0] - H_v[0])
         # autodiff residual 2
-        e_2 = tf.gradients(F[1], x)[0] + tf.gradients(G[1], y)[0] 
+        e_2 = tf.gradients(F[1], x)[0] + tf.gradients(G[1], y)[0] - alpha/y*(H[1] - H_v[1])
         # autodiff residual 3
-        e_3 = tf.gradients(F[2], x)[0] + tf.gradients(G[2], y)[0] 
+        e_3 = tf.gradients(F[2], x)[0] + tf.gradients(G[2], y)[0] - alpha/y*(H[2] - H_v[2])
         # autodiff residual 4
-        e_4 = tf.gradients(F[3], x)[0] + tf.gradients(G[3], y)[0] 
-       
+        e_4 = tf.gradients(F[3], x)[0] + tf.gradients(G[3], y)[0] - alpha/y*(H[3] - H_v[3])
         # state residual
-        gamma = 1.4
         state_res = P - rho*R*T
         
-        total_res = tf.reduce_mean(tf.square(e_1)) + tf.reduce_mean(tf.square(e_2)) + tf.reduce_mean(tf.square(e_3)) + tf.reduce_mean(tf.square(e_4)) + tf.reduce_mean(tf.square(state_res))
+        total_res = tf.reduce_mean(tf.square(e_1)) + \
+                    tf.reduce_mean(tf.square(e_2)) + \
+                    tf.reduce_mean(tf.square(e_3)) + \
+                    tf.reduce_mean(tf.square(e_4)) + \
+                    tf.reduce_mean(tf.square(state_res))
 
         return P, rho, u, v, T, total_res 
         
@@ -172,7 +190,7 @@ class PINN:
     def train(self, nIter): 
 
         tf_dict = {self.P_back_tf: self.P_back, self.x_tf: self.x, self.y_tf: self.y,
-                    self.P_tf: self.P, self.rho_tf: self.rho, self.u_tf: self.u, self.T_tf: self.T
+                    self.P_tf: self.P, self.rho_tf: self.rho, self.u_tf: self.u, self.v_tf: self.v,self.T_tf: self.T
                     }
         
         global loss_vector
@@ -186,8 +204,9 @@ class PINN:
 
             loss_vector.append(loss_value)
 
+            
             # Print
-            if it % 1000 == 0:
+            if it % 100 == 0:
                 elapsed = time.time() - start_time
                 # res1 = self.sess.run(self.e1, tf_dict)
                 # res2 = self.sess.run(self.e2, tf_dict)
@@ -197,7 +216,12 @@ class PINN:
                 # print('Mass Residual: %f\t\tMomentum Residual: %f\tEnergy Residual: %f'
                 #     %(sum(map(lambda a:a*a,res1))/len(res1), sum(map(lambda a:a*a,res2))/len(res2), sum(map(lambda a:a*a,res3))/len(res3)))
                 start_time = time.time()
-            
+
+
+                self.saver.save(self.sess,self.chkpt_name,global_step = it)
+
+        
+    
         self.optimizer.minimize(self.sess,
                                feed_dict = tf_dict,
                                fetches = [self.loss],
@@ -207,10 +231,33 @@ class PINN:
             
     
     def predict(self, P_back_test, x_test, y_test):
-        tf_dict = {self.P_back_tf: P_back_test, self.x_tf: x_test, self.y_tf: y_test}
-        P_test = self.sess.run(self.P_pred, tf_dict)
-        rho_test = self.sess.run(self.rho_pred, tf_dict)
-        u_test = self.sess.run(self.u_pred, tf_dict)
-        v_test = self.sess.run(self.v_pred, tf_dict)
-        T_test = self.sess.run(self.T_pred, tf_dict)
+
+        tf_dict     = {self.P_back_tf: P_back_test, self.x_tf: x_test, self.y_tf: y_test}
+        P_test      = self.sess.run(self.P_pred, tf_dict)
+        rho_test    = self.sess.run(self.rho_pred, tf_dict)
+        u_test      = self.sess.run(self.u_pred, tf_dict)
+        v_test      = self.sess.run(self.v_pred, tf_dict)
+        T_test      = self.sess.run(self.T_pred, tf_dict)
+
         return P_test, rho_test, u_test, v_test, T_test
+
+
+    def save(self,path):
+        input_dict = {"P_back": self.P_back_tf, 
+                        "x": self.x_tf, 
+                        "y": self.y_tf}
+
+        output_dict = {"P": self.P_tf,
+                        "rho": self.rho_tf,
+                        "u":self.u_tf,
+                        "v": self.v_tf,
+                        "T":self.T_tf}
+
+        tf.compat.v1.saved_model.simple_save(self.sess, path,input_dict,output_dict)
+
+
+
+    def load(self,path):        
+        tf.saved_model.load(self.sess, [tf.saved_model.tag_constants.SERVING], path)
+
+
