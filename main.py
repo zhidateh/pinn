@@ -1,128 +1,131 @@
-import utils
+#!/usr/bin/python3
+
+import utils as utils
 import os
-import pinn2 as pinn
+import pinn as pinn
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import time
+import math
 
 np.random.seed(1234)
 tf.set_random_seed(1234)
 
+setting_name = "PINN00100"
 node_filter = 1
-dataset_filter = 0.005
+layers = [3, 10, 10, 10,  5]
 
-#layers = [3, 100,200,300, 200, 100, 5]
-layers = [3, 50, 100 , 50, 5]
-#layers = [3, 50, 50, 50, 50, 50, 50, 50, 5]
+num_epochs      = 20
+num_iter        = 5001
+batch_size      = 1000  
+learning_rate   = 1e-3
 
-training_itr = 20001
+model_path = '/home/zhida/Documents/PINN/2d_inviscid_model/%s/'%setting_name
+test_path = '/home/zhida/Documents/PINN/test/'
+train_path = '/home/zhida/Documents/PINN/train/'
 
+##Load all data---------------------------------------------------------------------------------------  
+#data is matrix of m x n, where m is number of nodes, n is number of datasets
+P_back,x,y,P,rho,u,v,T,Et,E = utils.loadData(train_path,node_filter)
+P_back_test,x_test,y_test,P_test,rho_test,u_test,v_test,T_test,Et_test,E_test = utils.loadData(test_path,node_filter)
 
-##Load training data---------------------------------------------------------------------------------------
+##Prepocessing---------------------------------------------------------------------------------------
+#normalize data with stagnation condition
+P_norm      = np.amax(P)
+rho_norm    = np.amax(rho)
+u_norm      = np.amax(u)
+v_norm      = np.amax(v)
+T_norm      = np.amax(T)
+Et_norm     = np.amax(Et)
+E_norm      = np.amax(E)
 
-P_back,x,y,P,rho,u,v,T,E,Et = utils.loadData('train',node_filter)
+P_back      /= P_norm
+P           /= P_norm
+rho         /= rho_norm
+u           /= u_norm 
+v           /= v_norm
+T           /= T_norm
+Et          /= Et_norm
+E           /= E_norm
 
-# print("Mother dataset (training) Properties:")
-# print("Mother dataset::: #Input Variables:  (P_back, x, y)")
-# print("Mother dataset::: #Output Variables: 5 (P, rho, u, v, T)")
-# print("Mother dataset::: Source: Fluent Simulation of max 15 iter/time_step")
-# print("Mother dataset::: Source: Residual Convergence Criteria: absolute 1e-06")
-# print("Mother dataset::: Method: Density based Explicit Solver with #Courant: 50")
-# print("Mother dataset::: Stagnation Pressure Inlet: 1.0 [atm], Static Pressure inlet = 1.0 [atm]")
-# print("Mother dataset::: Gauge Outlet Pressure Variation: [0.6* Po , 0.8 * Po]")
-# print("Mother dataset::: #number nodes in Nozzle: " + str(n_values))
-# print("Mother dataset::: Dataset #length for each variable: " + str(int(x_vector.shape[0])))
-
-
-N_train = int(dataset_filter * P.shape[0])
-A = np.random.choice(P_back.shape[0],size = (N_train,), replace=False)
-
-
-#training data
-P_back_train    = P_back[A].flatten()[:,None]
-x_train         = x[A].flatten()[:,None]
-y_train         = y[A].flatten()[:,None]
-P_train         = P[A].flatten()[:,None]
-rho_train       = rho[A].flatten()[:,None]
-u_train         = u[A].flatten()[:,None]
-v_train         = v[A].flatten()[:,None]
-T_train         = T[A].flatten()[:,None]
-E_train         = E[A].flatten()[:,None]
-Et_train        = Et[A].flatten()[:,None]
-
-
-
-
-
-plt.plot(x_train,y_train,'ro')
-plt.show()
+P_back_test /= P_norm
+P_test      /= P_norm
+rho_test    /= rho_norm
+u_test      /= u_norm
+v_test      /= v_norm
+T_test      /= T_norm
+Et_test     /= Et_norm
+E_test      /= E_norm
 
 
+P_back  = P_back.flatten()[:,None]
+x       = x.flatten()[:,None]
+y       = y.flatten()[:,None]
+P       = P.flatten()[:,None]
+rho     = rho.flatten()[:,None]
+u       = u.flatten()[:,None]
+v       = v.flatten()[:,None]
+T       = T.flatten()[:,None]
+Et      = Et.flatten()[:,None]
 
-
-model = pinn.PINN(P_back_train,\
-                    x_train, \
-                    y_train, \
-                    P_train, \
-                    rho_train, \
-                    u_train, \
-                    v_train, \
-                    E_train, \
-                    layers)
-
-
-
-
-#Load trained model-------------------------------------------------------------------------------------------------
-#saver = tf.compat.v1.train.import_meta_graph('tmp/2d_inviscid_model_20190929-193536-50000.meta')
-#saver.restore(model.sess,tf.train.latest_checkpoint('tmp/.'))
-#--------------------------------------------------------------------------------------------------------------------
-
-
-
-
-#Training-----------------------------------------------------------------------------------------------------------
-loss_vector = model.train(training_itr)
-#model.save(os.getcwd() + '/save/')
-#-------------------------------------------------------------------------------------------------------------------
-
-
-
-
-
-##Testing---------------------------------------------------------------------------------------------------------------
-P_back_test,x_test,y_test,P_test,rho_test,u_test,v_test,T_test,E_test,Et_test = utils.loadData('test',node_filter)
 
 P_back_test = P_back_test.flatten()[:,None]
 x_test = x_test.flatten()[:,None]
 y_test = y_test.flatten()[:,None]
-
-#Prediction
-P_pred, rho_pred, u_pred, v_pred, E_pred = model.predict(P_back_test, x_test,y_test)
-
-#model.load(os.getcwd() + '/save/')
-#P_pred_1, rho_pred, u_pred, v_pred, T_pred = model.predict(P_back_test, x_test,y_test)
-
-plt.plot(np.linspace(0,1,len(loss_vector)), loss_vector,'rx')
-plt.show()
+P_test = P_test.flatten()[:,None] 
+rho_test = rho_test.flatten()[:,None]
+u_test = u_test.flatten()[:,None]
+v_test = v_test.flatten()[:,None]
+T_test = T_test.flatten()[:,None]
+E_test = E_test.flatten()[:,None]
+Et_test = Et_test.flatten()[:,None]
 
 
-#print(P_pred_1)
 
-utils.writeData(x_test,y_test,P_pred,rho_pred,u_pred,v_pred,E_pred)
+#Main code-------------------------------------------------------------------------------
+#initiaise PINN class
+model = pinn.DeepPINN_2D(P_back,\
+                        x, \
+                        y, \
+                        P, \
+                        rho, \
+                        u, \
+                        v, \
+                        Et, \
+                        layers)
 
 
-#Error
+model.ckpt_name = 'tmp/' + setting_name 
+
+#saver = tf.compat.v1.train.import_meta_graph('/home/zhida/Documents/pinn/2d_inviscid_model/PINN00037/PINN00037-19.meta')
+#saver.restore(model.sess,("/home/zhida/Documents/pinn/2d_inviscid_model/PINN00037/PINN00037-19"))
+model.train(num_epochs, num_iter, batch_size,learning_rate)
+
+# #Prediction----------------------------------------------------------------------------------------------------------------
+P_pred, rho_pred, u_pred, v_pred, Et_pred = model.predict(P_back_test, x_test,y_test)
+
+# #Error
 error_P = np.linalg.norm(P_test-P_pred,2)/np.linalg.norm(P_test,2)
 print("Test Error in P: "+str(error_P))
-
-
 error_rho = np.linalg.norm(rho_test-rho_pred,2)/np.linalg.norm(rho_test,2)
 print("Test Error in rho: "+str(error_rho))
 error_u = np.linalg.norm(u_test-u_pred,2)/np.linalg.norm(u_test,2)
 print("Test Error in u: "+str(error_u))
 error_v = np.linalg.norm(v_test-v_pred,2)/np.linalg.norm(v_test,2)
 print("Test Error in v: "+str(error_v))
-error_T = np.linalg.norm(E_test-E_pred,2)/np.linalg.norm(E_test,2)
-print("Test Error in T: "+str(error_T))
-#------------------------------------------------------------------------------------------------------------------------
+error_Et = np.linalg.norm(Et_test-Et_pred,2)/np.linalg.norm(Et_test,2)
+print("Test Error in E: "+str(error_Et))
+
+P_pred       *= P_norm
+rho_pred     *= rho_norm
+u_pred       *= u_norm
+v_pred       *= v_norm
+Et_pred       *= Et_norm
+
+path = os.getcwd() + '/predict/%s_bp=%s.csv'%(setting_name,str(int(P_back_test[0]*P_norm)))
+utils.writeData(path,x_test,y_test,P_pred,rho_pred,u_pred,v_pred,Et_pred)
+
+path2 = os.getcwd() + '/predict/%s_bp=%s_loss.csv'%(setting_name,str(int(P_back_test[0]*P_norm)))
+utils.writeLoss(path2,model.loss_vector,model.step_vector)
+
