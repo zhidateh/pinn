@@ -208,8 +208,6 @@ class DeepPINN_2D:
         # state residual
         e_5 = 0#P - rho*R*T
 
-
-
         return P,rho,u,v,Et, e_1, e_2,e_3,e_4 
         
     def callback(self, loss):
@@ -292,7 +290,7 @@ class DeepPINN_2D:
                     start_time = time.time()
                     self.saver.save(self.sess,self.ckpt_name,global_step = epoch)
 
-                    self.loss_vector.append(loss_value)
+                    self.loss_vector.append(loss_value[0])
                     self.step_vector.append(1)
 
                 if epoch % 5 == 0 and it == 0:

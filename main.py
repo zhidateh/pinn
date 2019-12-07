@@ -16,12 +16,11 @@ setting_name = "PINN00100"
 node_filter = 1
 layers = [3, 10, 10, 10,  5]
 
-num_epochs      = 20
+num_epochs      = 10
 num_iter        = 5001
 batch_size      = 1000  
 learning_rate   = 1e-3
 
-model_path = '/home/zhida/Documents/PINN/2d_inviscid_model/%s/'%setting_name
 test_path = '/home/zhida/Documents/PINN/test/'
 train_path = '/home/zhida/Documents/PINN/train/'
 
@@ -29,6 +28,7 @@ train_path = '/home/zhida/Documents/PINN/train/'
 #data is matrix of m x n, where m is number of nodes, n is number of datasets
 P_back,x,y,P,rho,u,v,T,Et,E = utils.loadData(train_path,node_filter)
 P_back_test,x_test,y_test,P_test,rho_test,u_test,v_test,T_test,Et_test,E_test = utils.loadData(test_path,node_filter)
+
 
 ##Prepocessing---------------------------------------------------------------------------------------
 #normalize data with stagnation condition
@@ -68,7 +68,6 @@ u       = u.flatten()[:,None]
 v       = v.flatten()[:,None]
 T       = T.flatten()[:,None]
 Et      = Et.flatten()[:,None]
-
 
 P_back_test = P_back_test.flatten()[:,None]
 x_test = x_test.flatten()[:,None]
